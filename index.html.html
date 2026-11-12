@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulasi PLC Lampu Lalu Lintas 4-Arah (Single Cycle)</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Three.js for 3D Simulation -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+body {
+    font-family: 'Inter', sans-serif;
+}
+.code-font {
+    font-family: 'Fira Code', monospace;
+}
+/* Custom Traffic Light Glows */
+.light-red { background-color: #374151; transition: all 0.3s ease; }
+.light-red.active { background-color: #ef4444; box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444; }
+.light-yellow { background-color: #374151; transition: all 0.3s ease; }
+.light-yellow.active { background-color: #eab308; box-shadow: 0 0 20px #eab308, 0 0 40px #eab308; }
+.light-green { background-color: #374151; transition: all 0.3s ease; }
+.light-green.active { background-color: #22c55e; box-shadow: 0 0 20px #22c55e, 0 0 40px #22c55e; }
+</style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+<!-- Header Navigation -->
+<header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg">
+<div class="flex items-center gap-3">
+<div class="p-2 bg-indigo-600 rounded-lg text-white">
+<i data-lucide="cpu" class="w-6 h-6"></i>
+</div>
+<div>
+<h1 class="font-bold text-lg leading-tight">PLC Traffic Light Control System</h1>
+<p class="text-xs text-slate-400">Simulasi Logika Timer Tunggal (Single-Shot Green Cycle)</p>
+</div>
+</div>
+<div class="flex items-center gap-4 mt-2 sm:mt-0">
+<div class="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-700 text-xs">
+<span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+<span class="text-emerald-400 font-mono font-medium" id="plc-status-text">PLC RUNNING (1x CYCLE)</span>
+</div>
+<div class="text-xs font-mono bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700">
+Cycle Scan: <span id="scan-time" class="text-cyan-400">12ms</span>
+</div>
+</div>
+</header>
+
+<!-- Main Content Container -->
+<main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 md:p-6 max-w-[1700px] w-full mx-auto">
+<!-- Left Column: Visual Intersection Simulation (6 cols) -->
+<section class="lg:col-span-6 flex flex-col gap-4">
+<div class="bg-slate-800 rounded-xl border border-slate-700 p-4 shadow-md flex-1 flex flex-col">
+<div class="flex justify-between items-center mb-3">
+<h2 class="text-md font-semibold flex items-center gap-2">
+<i data-lucide="map-pin" class="w-4 h-4 text-indigo-400"></i> Simpang 4 Utama (HMI Visualizer)
+</h2>
+<span class="text-xs bg-slate-700 px-2.5 py-1 rounded-md font-mono text-slate-300">Status: <span id="current-phase-name" class="text-emerald-400 font-bold">ARAH UTARA HIJAU (1 LAMPU)</span></span>
+</div>
+<!-- Canvas 3D Road Intersection Container -->
+<div id="intersection-box" class="relative w-full aspect-square max-w-[500px] mx-auto bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center shadow-inner cursor-grab active:cursor-grabbing">
+<!-- Three.js 3D Canvas Mount Point -->
+<div id="three-canvas-container" class="absolute inset-0 w-full h-full"></div>
+
+<!-- Petunjuk Kontrol Kamera 3D -->
+<div class="absolute top-3 left-3 z-20 bg-slate-900/80 border border-slate-700/80 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[10px] text-slate-300 flex items-center gap-1.5 pointer-events-none">
+<i data-lucide="move-3d" class="w-3.5 h-3.5 text-cyan-400"></i>
+<span>Seret: Putar 3D &bull; Scroll: Zoom</span>
+</div>
+
+<!-- Tombol Reset Kamera 3D -->
+<button onclick="resetCamera3D()" class="absolute bottom-3 left-3 z-20 bg-slate-900/90 hover:bg-slate-800 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-medium text-slate-200 flex items-center gap-1 shadow-lg transition">
+<i data-lucide="rotate-ccw" class="w-3 h-3 text-indigo-400"></i> Reset Sudut
+</button>
+
+<!-- Dynamic Countdown Display HUD (Pojok Kanan Atas) -->
+<div class="absolute top-3 right-3 z-20 bg-slate-900/90 border border-indigo-500/60 backdrop-blur-md px-3 py-1.5 rounded-xl flex flex-col items-center justify-center shadow-2xl pointer-events-none">
+<span class="text-[8px] text-indigo-300 font-semibold uppercase tracking-wider">Sisa Waktu</span>
+<span id="timer-display" class="text-xl font-black font-mono text-cyan-400 leading-none my-0.5">07</span>
+<span class="text-[8px] text-slate-400">Detik</span>
+</div>
+</div>
+
+<!-- Control Panel & Pengatur Durasi Hijau -->
+<div class="mt-4 flex flex-col gap-3">
+<div class="bg-slate-900 border border-slate-700 p-3 rounded-lg flex items-center justify-between">
+<span class="text-xs text-slate-300 font-medium flex items-center gap-1.5">
+<i data-lucide="sliders" class="w-3.5 h-3.5 text-indigo-400"></i> Atur Durasi Lampu Hijau: <strong id="preset-value-label" class="text-cyan-400 font-mono">7s</strong>
+</span>
+<div class="flex items-center gap-2">
+<input type="range" id="duration-slider" min="3" max="20" value="7" oninput="updateDurationPreset(this.value)" class="w-28 accent-indigo-500 cursor-pointer">
+</div>
+</div>
+
+<div class="grid grid-cols-3 gap-3">
+<button id="btn-start" onclick="setPlcMode('RUN')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 text-xs transition shadow">
+<i data-lucide="play" class="w-4 h-4"></i> START (AUTO)
+</button>
+<button id="btn-stop" onclick="setPlcMode('STOP')" class="bg-rose-600 hover:bg-rose-500 text-white font-medium py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 text-xs transition shadow">
+<i data-lucide="square" class="w-4 h-4"></i> STOP (MERAH)
+</button>
+<button id="btn-night" onclick="setPlcMode('DARURAT')" class="bg-amber-600 hover:bg-amber-500 text-white font-medium py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 text-xs transition shadow">
+<i data-lucide="alert-triangle" class="w-4 h-4"></i> DARURAT (KUNING)
+</button>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Right Column: PLC Control & I/O Display (6 cols) -->
+<section class="lg:col-span-6 flex flex-col gap-4">
+<!-- Pemetaan I/O Modbus (Tanpa Kotak Kode Python) -->
+<div class="bg-slate-800 rounded-xl border border-slate-700 p-4 shadow-md flex-1 flex flex-col">
+<div class="flex justify-between items-center border-b border-slate-700 pb-3 mb-3">
+<div class="flex items-center gap-2 text-xs font-semibold text-white">
+<div class="p-1.5 bg-indigo-600 rounded-md">
+<i data-lucide="layers" class="w-3.5 h-3.5"></i>
+</div>
+<span>Pemetaan I/O Modbus (1 Lampu Hijau Aktif per Waktu)</span>
+</div>
+<span class="text-xs text-slate-400 font-mono">Modbus TCP / RTU Port 502</span>
+</div>
+
+<!-- I/O Hardware Mapping Status -->
+<div id="tab-io" class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+<!-- Perintah HMI -> PLC (Modbus Coils) -->
+<div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+<h3 class="text-xs font-bold text-slate-300 border-b border-slate-800 pb-2 mb-2 flex justify-between">
+<span>PERINTAH HMI &rarr; PLC</span>
+<span class="text-slate-500">Modbus Coils</span>
+</h3>
+<div class="space-y-2 text-xs font-mono">
+<div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+<span>Coil 0 (START)</span>
+<span id="io-coil0" class="px-2 py-0.5 text-[10px] rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-bold">ON</span>
+</div>
+<div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+<span>Coil 1 (STOP)</span>
+<span id="io-coil1" class="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500">OFF</span>
+</div>
+<div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+<span>Coil 2 (DARURAT)</span>
+<span id="io-coil3" class="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500">OFF</span>
+</div>
+</div>
+</div>
+
+<!-- Status PLC -> HMI (Modbus Inputs per Arah) -->
+<div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+<h3 class="text-xs font-bold text-slate-300 border-b border-slate-800 pb-2 mb-2 flex justify-between">
+<span>STATUS LAMPU HIJAU (1 AKTIF)</span>
+<span class="text-slate-500">Modbus Inputs</span>
+</h3>
+<div class="space-y-1.5 text-xs font-mono">
+<div class="flex justify-between items-center bg-slate-900 p-1.5 rounded">
+<span>Input 0 (UTARA_HIJAU)</span>
+<span id="io-n-g" class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-bold">ON</span>
+</div>
+<div class="flex justify-between items-center bg-slate-900 p-1.5 rounded">
+<span>Input 1 (TIMUR_HIJAU)</span>
+<span id="io-e-g" class="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500">OFF</span>
+</div>
+<div class="flex justify-between items-center bg-slate-900 p-1.5 rounded">
+<span>Input 2 (SELATAN_HIJAU)</span>
+<span id="io-s-g" class="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500">OFF</span>
+</div>
+<div class="flex justify-between items-center bg-slate-900 p-1.5 rounded">
+<span>Input 3 (BARAT_HIJAU)</span>
+<span id="io-w-g" class="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500">OFF</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Internal Registers & Timers Monitoring -->
+<div class="bg-slate-800 rounded-xl border border-slate-700 p-4 shadow-md">
+<h3 class="text-xs font-semibold text-slate-300 mb-3 flex items-center gap-2">
+<i data-lucide="timer" class="w-4 h-4 text-amber-400"></i> Monitoring Timer TON & Interlock Tunggal
+</h3>
+<div class="grid grid-cols-3 gap-3 text-center">
+<div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+<span class="text-[10px] text-slate-400 font-mono block">TIMER TON (T0)</span>
+<span id="t-acc" class="text-xl font-bold font-mono text-indigo-400">0.0s</span>
+<span class="text-[9px] text-slate-500 block mt-1">Preset: <span id="t-preset">7s</span></span>
+</div>
+<div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+<span class="text-[10px] text-slate-400 font-mono block">ARAH HIJAU AKTIF</span>
+<span id="active-dir" class="text-xl font-bold font-mono text-emerald-400">UTARA</span>
+<span class="text-[9px] text-slate-500 block mt-1">Hanya 1 Lampu Hijau</span>
+</div>
+<div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+<span class="text-[10px] text-slate-400 font-mono block">INTERLOCK STATUS</span>
+<span id="interlock-status" class="text-xl font-bold font-mono text-cyan-400">AMAN (1/4)</span>
+<span class="text-[9px] text-slate-500 block mt-1">Maksimal 1 Hijau</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Footer -->
+<footer class="bg-slate-800 border-t border-slate-700 px-6 py-3 text-center text-xs text-slate-400">
+Simulasi Logika Pemrograman PLC & HMI HTML Lampu Lalu Lintas (Single Green Cycle) © 2026.
+</footer>
+
+<!-- JavaScript Simulator Engine -->
+<script>
+// Inisialisasi ikon Lucide dengan pengecekan aman
+function initIcons() {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+class PLCTrafficController {
+    constructor() {
+        this.coils = { START: true, STOP: false, DARURAT: false };
+        this.timer = { ACC: 0, PRE: 7 };
+        this.directions = ['UTARA', 'TIMUR', 'SELATAN', 'BARAT'];
+        this.activeIndex = 0; // Menentukan 1 arah yang lampu hijaunya menyala
+        this.outputs = {
+            N_R: false, N_Y: false, N_G: true,
+            E_R: true,  E_Y: false, E_G: false,
+            S_R: true,  S_Y: false, S_G: false,
+            W_R: true,  W_Y: false, W_G: false
+        };
+        this.flashState = false;
+        this.flashTimer = 0;
+        this.mode = 'RUN';
+    }
+
+    scanCycle(deltaTime) {
+        // Skenario Darurat: Kuning berkedip di semua arah
+        if (this.mode === 'DARURAT' || this.coils.DARURAT) {
+            this.flashTimer += deltaTime;
+            if (this.flashTimer >= 0.5) {
+                this.flashTimer = 0;
+                this.flashState = !this.flashState;
+            }
+            this.outputs = {
+                N_R: false, N_Y: this.flashState, N_G: false,
+                E_R: false, E_Y: this.flashState, E_G: false,
+                S_R: false, S_Y: this.flashState, S_G: false,
+                W_R: false, W_Y: this.flashState, W_G: false
+            };
+            return;
+        }
+
+        // Skenario Stop: Semua lampu merah menyala
+        if (this.mode === 'STOP' || this.coils.STOP || !this.coils.START) {
+            this.outputs = {
+                N_R: true, N_Y: false, N_G: false,
+                E_R: true, E_Y: false, E_G: false,
+                S_R: true, S_Y: false, S_G: false,
+                W_R: true, W_Y: false, W_G: false
+            };
+            this.timer.ACC = 0;
+            return;
+        }
+
+        // Skenario Normal: Hanya 1 lampu hijau yang menyala pada satu waktu
+        this.timer.ACC += deltaTime;
+        if (this.timer.ACC >= this.timer.PRE) {
+            this.timer.ACC = 0;
+            this.activeIndex = (this.activeIndex + 1) % 4;
+        }
+
+        const dir = this.directions[this.activeIndex];
+        this.outputs = {
+            N_R: dir !== 'UTARA',   N_Y: false, N_G: dir === 'UTARA',
+            E_R: dir !== 'TIMUR',   E_Y: false, E_G: dir === 'TIMUR',
+            S_R: dir !== 'SELATAN', S_Y: false, S_G: dir === 'SELATAN',
+            W_R: dir !== 'BARAT',   W_Y: false, W_G: dir === 'BARAT'
+        };
+    }
+}
+
+const plc = new PLCTrafficController();
+let lastTime = performance.now();
+
+function setPlcMode(mode) {
+    plc.mode = mode;
+    plc.timer.ACC = 0;
+    const statusText = document.getElementById('plc-status-text');
+    const statusDot = document.getElementById('status-dot');
+
+    if (mode === 'RUN') {
+        plc.coils.START = true;
+        plc.coils.STOP = false;
+        plc.coils.DARURAT = false;
+        statusText.innerText = "PLC RUNNING (1 LAMPU HIJAU)";
+        statusText.className = "text-emerald-400 font-mono font-medium";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping";
+    } else if (mode === 'STOP') {
+        plc.coils.START = false;
+        plc.coils.STOP = true;
+        plc.coils.DARURAT = false;
+        statusText.innerText = "PLC STOPPED (SEMUA MERAH)";
+        statusText.className = "text-rose-400 font-mono font-medium";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+    } else if (mode === 'DARURAT') {
+        plc.coils.DARURAT = true;
+        statusText.innerText = "SKENARIO DARURAT (KUNING BERKEDIP)";
+        statusText.className = "text-amber-400 font-mono font-medium";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping";
+    }
+}
+
+function updateUI() {
+    // Update visual ke-4 lampu lalu lintas 3D
+    if (typeof scene3D !== 'undefined' && scene3D.ready) {
+        scene3D.updateTrafficLights(plc.outputs);
+    }
+
+    // Hitung mundur timer
+    const remaining = Math.max(0, Math.ceil(plc.timer.PRE - plc.timer.ACC));
+    document.getElementById('timer-display').innerText = remaining < 10 ? `0${remaining}` : remaining;
+
+    // Label arah aktif
+    const phaseLabel = document.getElementById('current-phase-name');
+    const activeDirEl = document.getElementById('active-dir');
+    const currentDir = plc.directions[plc.activeIndex];
+
+    if (plc.mode === 'STOP') {
+        phaseLabel.innerText = "SEMUA LAMPU MERAH";
+        phaseLabel.className = "text-rose-400 font-bold";
+        activeDirEl.innerText = "NONE";
+        activeDirEl.className = "text-xl font-bold font-mono text-rose-400";
+    } else if (plc.mode === 'DARURAT' || plc.coils.DARURAT) {
+        phaseLabel.innerText = "KUNING BERKEDIP (DARURAT)";
+        phaseLabel.className = "text-amber-400 font-bold";
+        activeDirEl.innerText = "FLASH";
+        activeDirEl.className = "text-xl font-bold font-mono text-amber-400";
+    } else {
+        phaseLabel.innerText = `ARAH ${currentDir} HIJAU (1 LAMPU)`;
+        phaseLabel.className = "text-emerald-400 font-bold";
+        activeDirEl.innerText = currentDir;
+        activeDirEl.className = "text-xl font-bold font-mono text-emerald-400";
+    }
+
+    // Monitoring Register & Interlock (Memastikan maksimal 1 hijau menyala)
+    document.getElementById('t-acc').innerText = plc.timer.ACC.toFixed(1) + 's';
+    document.getElementById('t-preset').innerText = plc.timer.PRE + 's';
+
+    const activeGreens = [plc.outputs.N_G, plc.outputs.E_G, plc.outputs.S_G, plc.outputs.W_G].filter(Boolean).length;
+    const interlockEl = document.getElementById('interlock-status');
+    if (activeGreens <= 1) {
+        interlockEl.innerText = `AMAN (${activeGreens}/4)`;
+        interlockEl.className = "text-xl font-bold font-mono text-cyan-400";
+    } else {
+        interlockEl.innerText = `BAHAYA (${activeGreens}/4)`;
+        interlockEl.className = "text-xl font-bold font-mono text-rose-500 animate-pulse";
+    }
+
+    // Pemetaan I/O Modbus
+    updateIoBadge('io-coil0', plc.coils.START);
+    updateIoBadge('io-coil1', plc.coils.STOP);
+    updateIoBadge('io-coil3', plc.coils.DARURAT);
+
+    updateIoBadge('io-n-g', plc.outputs.N_G);
+    updateIoBadge('io-e-g', plc.outputs.E_G);
+    updateIoBadge('io-s-g', plc.outputs.S_G);
+    updateIoBadge('io-w-g', plc.outputs.W_G);
+}
+
+function updateIoBadge(id, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (state) {
+        el.innerText = "ON / HIGH";
+        el.className = "px-1.5 py-0.5 text-[10px] rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-bold";
+    } else {
+        el.innerText = "OFF / LOW";
+        el.className = "px-1.5 py-0.5 text-[10px] rounded bg-slate-800 text-slate-500";
+    }
+}
+
+// -------------------------------------------------------------
+// Engine Visualisasi 3D (Three.js) - Simpang 4, Tiang Lampu & Kendaraan
+// -------------------------------------------------------------
+class Intersection3D {
+    constructor(containerId) {
+        this.container = document.getElementById(containerId);
+        this.ready = false;
+        if (!this.container || typeof THREE === 'undefined') return;
+
+        // 1. Setup Scene, Camera & Renderer
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x090d16);
+        this.scene.fog = new THREE.FogExp2(0x090d16, 0.011);
+
+        const w = this.container.clientWidth || 460;
+        const h = this.container.clientHeight || 460;
+        this.camera = new THREE.PerspectiveCamera(42, w / h, 0.1, 200);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(w, h);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.container.appendChild(this.renderer.domElement);
+
+        // Orbit Camera Parameters
+        this.camSpherical = { radius: 42, theta: Math.PI / 4, phi: Math.PI / 3.3 };
+        this.updateCameraPosition();
+
+        // 2. Pencahayaan
+        const ambientLight = new THREE.AmbientLight(0x94a3b8, 0.65);
+        this.scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xf8fafc, 0.95);
+        dirLight.position.set(22, 36, 18);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        dirLight.shadow.camera.near = 5;
+        dirLight.shadow.camera.far = 90;
+        const d = 28;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        this.scene.add(dirLight);
+
+        // 3. Bangun Lingkungan Jalan, Zebra Cross, Trotoar & Gedung Dekoratif
+        this.buildEnvironment();
+
+        // 4. Bangun 4 Tiang Lampu Lalu Lintas 3D
+        this.lightMeshes = {};
+        this.buildTrafficLights();
+
+        // 5. Bangun Kendaraan 3D
+        this.carMeshes = {};
+        this.buildVehicles();
+
+        // 6. Kontrol Mouse & Sentuhan untuk Rotasi / Zoom Kamera 3D
+        this.bindControls();
+        window.addEventListener('resize', () => this.onResize());
+
+        this.ready = true;
+    }
+
+    buildEnvironment() {
+        // Tanah Rumput / Area Kota
+        const groundGeo = new THREE.PlaneGeometry(140, 140);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        this.scene.add(ground);
+
+        // Aspal Jalan Utama (Lebar jalan = 10 unit, masing-masing lajur = 5 unit)
+        const roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+        const roadNS = new THREE.Mesh(new THREE.BoxGeometry(10, 0.08, 120), roadMat);
+        roadNS.position.y = 0.04;
+        roadNS.receiveShadow = true;
+        this.scene.add(roadNS);
+
+        const roadEW = new THREE.Mesh(new THREE.BoxGeometry(120, 0.08, 10), roadMat);
+        roadEW.position.y = 0.041;
+        roadEW.receiveShadow = true;
+        this.scene.add(roadEW);
+
+        // Trotoar / Pulau Sudut (4 Kuadran)
+        const curbMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7 });
+        const blockMat = new THREE.MeshStandardMaterial({ color: 0x172033, roughness: 0.6 });
+        const corners = [
+            { x: -32, z: -32 }, { x: 32, z: -32 },
+            { x: -32, z: 32 },  { x: 32, z: 32 }
+        ];
+        corners.forEach(c => {
+            const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(53, 0.28, 53), curbMat);
+            sidewalk.position.set(c.x, 0.14, c.z);
+            sidewalk.receiveShadow = true;
+            sidewalk.castShadow = true;
+            this.scene.add(sidewalk);
+
+            // Blok bangunan rendah di pojok agar nuansa kota 3D terasa
+            const bldg = new THREE.Mesh(new THREE.BoxGeometry(16, 4.5, 16), blockMat);
+            bldg.position.set(c.x * 0.52, 2.4, c.z * 0.52);
+            bldg.castShadow = true;
+            bldg.receiveShadow = true;
+            this.scene.add(bldg);
+        });
+
+        // Marka Garis Tengah Putus-Putus & Garis Stop
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
+        for (let i = 9; i < 55; i += 4) {
+            const dashN = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 1.8), lineMat);
+            dashN.rotation.x = -Math.PI / 2;
+            dashN.position.set(0, 0.09, -i);
+            this.scene.add(dashN);
+
+            const dashS = dashN.clone();
+            dashS.position.set(0, 0.09, i);
+            this.scene.add(dashS);
+
+            const dashW = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.22), lineMat);
+            dashW.rotation.x = -Math.PI / 2;
+            dashW.position.set(-i, 0.09, 0);
+            this.scene.add(dashW);
+
+            const dashE = dashW.clone();
+            dashE.position.set(i, 0.09, 0);
+            this.scene.add(dashE);
+        }
+
+        // Garis Stop Putih (di posisi +/- 7.8)
+        const stopNS = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 0.4), lineMat);
+        stopNS.rotation.x = -Math.PI / 2;
+        const stopN = stopNS.clone(); stopN.position.set(-2.4, 0.095, -7.8); this.scene.add(stopN);
+        const stopS = stopNS.clone(); stopS.position.set(2.4, 0.095, 7.8);  this.scene.add(stopS);
+
+        const stopEW = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 4.4), lineMat);
+        stopEW.rotation.x = -Math.PI / 2;
+        const stopW = stopEW.clone(); stopW.position.set(-7.8, 0.095, 2.4);  this.scene.add(stopW);
+        const stopE = stopEW.clone(); stopE.position.set(7.8, 0.095, -2.4);  this.scene.add(stopE);
+
+        // Zebra Cross (4 Sisi)
+        for (let s = -4; s <= 4; s += 1.3) {
+            const zN = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 1.8), lineMat);
+            zN.rotation.x = -Math.PI / 2; zN.position.set(s, 0.092, -6.2); this.scene.add(zN);
+
+            const zS = zN.clone(); zS.position.set(s, 0.092, 6.2); this.scene.add(zS);
+
+            const zW = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.65), lineMat);
+            zW.rotation.x = -Math.PI / 2; zW.position.set(-6.2, 0.092, s); this.scene.add(zW);
+
+            const zE = zW.clone(); zE.position.set(6.2, 0.092, s); this.scene.add(zE);
+        }
+    }
+
+    createSingleTrafficPole(key, x, z, rotY) {
+        const group = new THREE.Group();
+        group.position.set(x, 0, z);
+        group.rotation.y = rotY;
+
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.3 });
+        const boxMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4 });
+
+        // Tiang Vertikal & Lengan Cantilever
+        const vPole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 5.2, 12), poleMat);
+        vPole.position.y = 2.6;
+        vPole.castShadow = true;
+        group.add(vPole);
+
+        const hArm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.2, 10), poleMat);
+        hArm.rotation.z = Math.PI / 2;
+        hArm.position.set(1.0, 5.0, 0);
+        group.add(hArm);
+
+        // Rumah Lampu (Housing)
+        const housing = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.1, 0.65), boxMat);
+        housing.position.set(2.0, 4.5, 0);
+        housing.castShadow = true;
+        group.add(housing);
+
+        // 3 Lensa Lampu (Merah, Kuning, Hijau) menghadap arah datang kendaraan (+Z lokal)
+        const bulbGeo = new THREE.SphereGeometry(0.26, 16, 16);
+        const makeBulb = (yOffset, hexColor, dimColor) => {
+            const mat = new THREE.MeshStandardMaterial({
+                color: dimColor,
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                roughness: 0.45
+            });
+            const mesh = new THREE.Mesh(bulbGeo, mat);
+            mesh.position.set(2.0, 4.5 + yOffset, 0.34);
+            group.add(mesh);
+
+            // Bingkai tipis gelap di sekeliling lensa agar tidak terlihat menyala saat OFF
+            const ringGeo = new THREE.RingGeometry(0.25, 0.29, 20);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x1e293b, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.set(2.0, 4.5 + yOffset, 0.335);
+            group.add(ring);
+
+            // PointLight untuk efek pendaran warna ke aspal/tiang saat menyala
+            const glowLight = new THREE.PointLight(hexColor, 0, 7);
+            glowLight.position.set(2.0, 4.5 + yOffset, 0.8);
+            group.add(glowLight);
+
+            return { mesh, glowLight, hexColor, dimColor };
+        };
+
+        this.lightMeshes[key] = {
+            R: makeBulb(0.62,  0xff2a2a, 0x3b0d0d),
+            Y: makeBulb(0.0,   0xfacc15, 0x3a2608),
+            G: makeBulb(-0.62, 0x22c55e, 0x0b2e19)
+        };
+
+        this.scene.add(group);
+    }
+
+    buildTrafficLights() {
+        // Tepat 4 tiang lampu lalu lintas di 4 sudut persimpangan
+        // UTARA (Mengatur kendaraan datang dari Utara -Z menuju Selatan +Z, menghadap -Z => rotY = Math.PI)
+        this.createSingleTrafficPole('N', -6.2, -6.8, Math.PI);
+        // TIMUR (Mengatur kendaraan datang dari Timur +X menuju Barat -X, menghadap +X => rotY = Math.PI / 2)
+        this.createSingleTrafficPole('E', 6.8, -6.2, Math.PI / 2);
+        // SELATAN (Mengatur kendaraan datang dari Selatan +Z menuju Utara -Z, menghadap +Z => rotY = 0)
+        this.createSingleTrafficPole('S', 6.2, 6.8, 0);
+        // BARAT (Mengatur kendaraan datang dari Barat -X menuju Timur +X, menghadap -X => rotY = -Math.PI / 2)
+        this.createSingleTrafficPole('W', -6.8, 6.2, -Math.PI / 2);
+    }
+
+    updateTrafficLights(outputs) {
+        if (!this.ready) return;
+        const setBulb = (bulbObj, active) => {
+            if (!bulbObj) return;
+            const { mesh, glowLight, hexColor, dimColor } = bulbObj;
+            if (active) {
+                mesh.material.color.setHex(hexColor);
+                mesh.material.emissive.setHex(hexColor);
+                mesh.material.emissiveIntensity = 1.6;
+                glowLight.intensity = 1.6;
+            } else {
+                mesh.material.color.setHex(dimColor);
+                mesh.material.emissive.setHex(0x000000);
+                mesh.material.emissiveIntensity = 0;
+                glowLight.intensity = 0;
+            }
+        };
+
+        ['N', 'E', 'S', 'W'].forEach(dir => {
+            setBulb(this.lightMeshes[dir].R, outputs[`${dir}_R`]);
+            setBulb(this.lightMeshes[dir].Y, outputs[`${dir}_Y`]);
+            setBulb(this.lightMeshes[dir].G, outputs[`${dir}_G`]);
+        });
+    }
+
+    createCar3D(v) {
+        const carGroup = new THREE.Group();
+
+        // Bodi Mobil / Kendaraan
+        const bodyMat = new THREE.MeshStandardMaterial({ color: v.color, metalness: 0.35, roughness: 0.35 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.75, 3.6), bodyMat);
+        body.position.y = 0.55;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        carGroup.add(body);
+
+        // Kabin Atas
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.15 });
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.6, 1.9), cabinMat);
+        cabin.position.set(0, 1.15, -0.15);
+        cabin.castShadow = true;
+        carGroup.add(cabin);
+
+        // Lampu Depan
+        const headMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+        const hlL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.1), headMat);
+        hlL.position.set(-0.6, 0.58, 1.81);
+        const hlR = hlL.clone(); hlR.position.x = 0.6;
+        carGroup.add(hlL, hlR);
+
+        // Lampu Rem Belakang
+        const tailMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+        const tlL = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.2, 0.1), tailMat);
+        tlL.position.set(-0.6, 0.58, -1.81);
+        const tlR = tlL.clone(); tlR.position.x = 0.6;
+        carGroup.add(tlL, tlR);
+
+        // 4 Roda
+        const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 12);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.9 });
+        const wheelCoords = [
+            [-0.95, 0.34, 1.1], [0.95, 0.34, 1.1],
+            [-0.95, 0.34, -1.1], [0.95, 0.34, -1.1]
+        ];
+        wheelCoords.forEach(([wx, wy, wz]) => {
+            const wMesh = new THREE.Mesh(wheelGeo, wheelMat);
+            wMesh.rotation.z = Math.PI / 2;
+            wMesh.position.set(wx, wy, wz);
+            carGroup.add(wMesh);
+        });
+
+        this.scene.add(carGroup);
+        this.carMeshes[v.id] = carGroup;
+    }
+
+    buildVehicles() {
+        vehicleSim.vehicles.forEach(v => this.createCar3D(v));
+    }
+
+    syncVehicles(vehicles) {
+        if (!this.ready) return;
+        vehicles.forEach(v => {
+            const mesh = this.carMeshes[v.id];
+            if (!mesh) return;
+            const worldPos = (v.pos - 300) * 0.1;
+
+            if (v.dir === 'UTARA') {
+                mesh.position.set(-2.4, 0.08, worldPos);
+                mesh.rotation.y = 0;
+            } else if (v.dir === 'SELATAN') {
+                mesh.position.set(2.4, 0.08, worldPos);
+                mesh.rotation.y = Math.PI;
+            } else if (v.dir === 'BARAT') {
+                mesh.position.set(worldPos, 0.08, 2.4);
+                mesh.rotation.y = Math.PI / 2;
+            } else if (v.dir === 'TIMUR') {
+                mesh.position.set(worldPos, 0.08, -2.4);
+                mesh.rotation.y = -Math.PI / 2;
+            }
+        });
+    }
+
+    updateCameraPosition() {
+        const { radius, theta, phi } = this.camSpherical;
+        this.camera.position.x = radius * Math.sin(phi) * Math.sin(theta);
+        this.camera.position.y = radius * Math.cos(phi);
+        this.camera.position.z = radius * Math.sin(phi) * Math.cos(theta);
+        this.camera.lookAt(0, 1.2, 0);
+    }
+
+    bindControls() {
+        let isDragging = false;
+        let prevX = 0, prevY = 0;
+        const dom = this.renderer.domElement;
+
+        const onStart = (x, y) => { isDragging = true; prevX = x; prevY = y; };
+        const onMove = (x, y) => {
+            if (!isDragging) return;
+            const dx = x - prevX;
+            const dy = y - prevY;
+            prevX = x; prevY = y;
+
+            this.camSpherical.theta -= dx * 0.008;
+            this.camSpherical.phi = Math.max(0.25, Math.min(Math.PI / 2.15, this.camSpherical.phi - dy * 0.008));
+            this.updateCameraPosition();
+        };
+        const onEnd = () => { isDragging = false; };
+
+        dom.addEventListener('mousedown', e => onStart(e.clientX, e.clientY));
+        window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+        window.addEventListener('mouseup', onEnd);
+
+        dom.addEventListener('touchstart', e => {
+            if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        dom.addEventListener('touchmove', e => {
+            if (e.touches.length === 1) onMove(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        dom.addEventListener('touchend', onEnd);
+
+        dom.addEventListener('wheel', e => {
+            e.preventDefault();
+            this.camSpherical.radius = Math.max(20, Math.min(72, this.camSpherical.radius + e.deltaY * 0.025));
+            this.updateCameraPosition();
+        }, { passive: false });
+    }
+
+    onResize() {
+        if (!this.container || !this.renderer) return;
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        if (w > 0 && h > 0) {
+            this.camera.aspect = w / h;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(w, h);
+        }
+    }
+
+    render() {
+        if (this.ready) {
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+}
+
+let scene3D;
+
+function resetCamera3D() {
+    if (scene3D && scene3D.ready) {
+        scene3D.camSpherical = { radius: 42, theta: Math.PI / 4, phi: Math.PI / 3.3 };
+        scene3D.updateCameraPosition();
+    }
+}
+
+// -------------------------------------------------------------
+// Sistem Simulasi Kendaraan 4-Arah (Patuh Lampu Lalu Lintas)
+// -------------------------------------------------------------
+// Sistem Simulasi Kendaraan 4-Arah (Jumlah Diperbanyak & Patuh Lampu)
+// -------------------------------------------------------------
+class TrafficVehicleManager {
+    constructor() {
+        this.vehicles = [
+            // Jalur Utara -> Selatan (4 Kendaraan)
+            { id: 'vN1', dir: 'UTARA', pos: 10,  speed: 140, color: '#38bdf8' },
+            { id: 'vN2', dir: 'UTARA', pos: -70, speed: 140, color: '#818cf8' },
+            { id: 'vN3', dir: 'UTARA', pos: -150, speed: 140, color: '#f472b6' },
+            { id: 'vN4', dir: 'UTARA', pos: -230, speed: 140, color: '#fb923c' },
+            // Jalur Timur -> Barat (4 Kendaraan)
+            { id: 'vE1', dir: 'TIMUR', pos: 510, speed: 140, color: '#34d399' },
+            { id: 'vE2', dir: 'TIMUR', pos: 590, speed: 140, color: '#a78bfa' },
+            { id: 'vE3', dir: 'TIMUR', pos: 670, speed: 140, color: '#facc15' },
+            { id: 'vE4', dir: 'TIMUR', pos: 750, speed: 140, color: '#f87171' },
+            // Jalur Selatan -> Utara (4 Kendaraan)
+            { id: 'vS1', dir: 'SELATAN', pos: 510, speed: 140, color: '#22d3ee' },
+            { id: 'vS2', dir: 'SELATAN', pos: 590, speed: 140, color: '#c084fc' },
+            { id: 'vS3', dir: 'SELATAN', pos: 670, speed: 140, color: '#4ade80' },
+            { id: 'vS4', dir: 'SELATAN', pos: 750, speed: 140, color: '#fb7185' },
+            // Jalur Barat -> Timur (4 Kendaraan)
+            { id: 'vW1', dir: 'BARAT', pos: 10,  speed: 140, color: '#acc8e5' },
+            { id: 'vW2', dir: 'BARAT', pos: -70, speed: 140, color: '#fde047' },
+            { id: 'vW3', dir: 'BARAT', pos: -150, speed: 140, color: '#fbbf24' },
+            { id: 'vW4', dir: 'BARAT', pos: -230, speed: 140, color: '#e879f9' }
+        ];
+    }
+
+    update(dt, outputs) {
+        const safeGap = 48;
+        const stopLines = { UTARA: 175, SELATAN: 425, BARAT: 175, TIMUR: 425 };
+
+        this.vehicles.forEach(v => {
+            const isGreen = (
+                (v.dir === 'UTARA' && outputs.N_G) ||
+                (v.dir === 'TIMUR' && outputs.E_G) ||
+                (v.dir === 'SELATAN' && outputs.S_G) ||
+                (v.dir === 'BARAT' && outputs.W_G)
+            );
+
+            let canMove = true;
+
+            // Cek jarak aman dengan kendaraan di depan pada arah yang sama
+            this.vehicles.forEach(other => {
+                if (other.id !== v.id && other.dir === v.dir) {
+                    if (v.dir === 'UTARA' || v.dir === 'BARAT') {
+                        const dist = other.pos - v.pos;
+                        if (dist > 0 && dist < safeGap) canMove = false;
+                    } else {
+                        const dist = v.pos - other.pos;
+                        if (dist > 0 && dist < safeGap) canMove = false;
+                    }
+                }
+            });
+
+            // Berhenti di garis stop jika lampu tidak hijau
+            if (!isGreen) {
+                if (v.dir === 'UTARA' && v.pos <= stopLines.UTARA && v.pos + v.speed * dt >= stopLines.UTARA) {
+                    v.pos = stopLines.UTARA;
+                    canMove = false;
+                } else if (v.dir === 'BARAT' && v.pos <= stopLines.BARAT && v.pos + v.speed * dt >= stopLines.BARAT) {
+                    v.pos = stopLines.BARAT;
+                    canMove = false;
+                } else if (v.dir === 'SELATAN' && v.pos >= stopLines.SELATAN && v.pos - v.speed * dt <= stopLines.SELATAN) {
+                    v.pos = stopLines.SELATAN;
+                    canMove = false;
+                } else if (v.dir === 'TIMUR' && v.pos >= stopLines.TIMUR && v.pos - v.speed * dt <= stopLines.TIMUR) {
+                    v.pos = stopLines.TIMUR;
+                    canMove = false;
+                }
+            }
+
+            if (canMove) {
+                if (v.dir === 'UTARA' || v.dir === 'BARAT') {
+                    v.pos += v.speed * dt;
+                    if (v.pos > 640) v.pos = -80;
+                } else {
+                    v.pos -= v.speed * dt;
+                    if (v.pos < -40) v.pos = 680;
+                }
+            }
+        });
+    }
+
+    render() {
+        if (typeof scene3D !== 'undefined' && scene3D.ready) {
+            scene3D.syncVehicles(this.vehicles);
+        }
+    }
+}
+
+const vehicleSim = new TrafficVehicleManager();
+
+function updateDurationPreset(val) {
+    plc.timer.PRE = parseInt(val, 10);
+    document.getElementById('preset-value-label').innerText = val + 's';
+    document.getElementById('t-preset').innerText = val + 's';
+}
+
+function plcMainLoop(now) {
+    const deltaTime = Math.min((now - lastTime) / 1000, 0.1);
+    lastTime = now;
+    plc.scanCycle(deltaTime);
+    vehicleSim.update(deltaTime, plc.outputs);
+    updateUI();
+    vehicleSim.render();
+    if (scene3D) scene3D.render();
+    requestAnimationFrame(plcMainLoop);
+}
+
+window.onload = function() {
+    initIcons();
+    scene3D = new Intersection3D('three-canvas-container');
+    lastTime = performance.now();
+    requestAnimationFrame(plcMainLoop);
+};
+</script>
+</body>
+</html>
